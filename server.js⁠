@@ -1,0 +1,65 @@
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const { WebcastPushConnection } = require('tiktok-live-connector');
+const cors = require('cors');
+
+// --- CONFIGURATION ---
+const TIKTOK_USERNAME = "UR•EDGE"; // <--- CHANGE THIS TO YOUR USERNAME
+const PORT = process.env.PORT || 3000;
+
+// Setup Server & WebSockets
+const app = express();
+app.use(cors());
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
+
+app.get('/', (req, res) => {
+  res.send('TikTok Live Game Server is Running!');
+});
+
+// Setup TikTok Connection
+const tiktokLiveConnection = new WebcastPushConnection(TIKTOK_USERNAME, {
+  processInitialData: false,
+  enableExtendedGiftInfo: true
+});
+
+// Connect to TikTok
+tiktokLiveConnection.connect().then(state => {
+  console.info(`Connected to ${state.roomId}'s live stream!`);
+}).catch(err => {
+  console.error('Failed to connect', err);
+});
+
+// --- LISTEN FOR GIFTS ---
+// This is where the magic happens. We map the TikTok gift names to our Game Teams.
+tiktokLiveConnection.on('gift', data => {
+  console.log(`Received gift: ${data.giftName} from ${data.nickname}`);
+  
+  // Create a payload to send to the game
+  const payload = {
+    giftName: data.giftName,
+    viewerName: data.nickname,
+    coins: data.diamondCount * data.repeatCount, // Total value for MVP
+    repeatCount: data.repeatCount
+  };
+
+  // Broadcast the gift event to anyone connected to our game (CodePen)
+  io.emit('tiktokGift', payload);
+});
+
+// --- LISTEN FOR LIKES (Optional Double Tap mechanic) ---
+tiktokLiveConnection.on('like', data => {
+    io.emit('tiktokLike', { viewerName: data.nickname, likeCount: data.likeCount });
+});
+
+
+// Start the server
+server.listen(PORT, () => {
+  console.log(`Server listening on port ${PORT}`);
+});
